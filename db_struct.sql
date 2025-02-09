@@ -54,12 +54,23 @@ begin
 		and password = p_password;
 	return query
 		select
-			id,
-			role_code
-		from auth_sys.user
-		where
-			login = p_login
-			and password = p_password;
+			*
+		from (
+			select
+				id,
+				role_code
+			from auth_sys.user
+			where
+				login = p_login
+				and password = p_password
+			union all
+				select
+					0::int8 as id,
+					0::int4 as role_code
+		)
+		order by id desc
+		fetch first 1 row only;
+		
 end;
 $$
 language plpgsql;
