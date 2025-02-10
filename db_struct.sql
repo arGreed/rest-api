@@ -41,7 +41,7 @@ comment on column auth_sys.user.password is 'Пароль пользовател
 
 
 create or replace function auth_sys.login_attempt (
-	p_login		varchar(255),	--? Логин пользователя;
+	p_name		varchar(255),	--? Логин или электронная почта пользователя;
 	p_password	varchar(60)		--? Пароль пользователя;
 )
 returns setof record as $$
@@ -50,8 +50,8 @@ begin
 	set
 		last_login = localtimestamp
 	where
-		login = p_login
-		and password = p_password;
+		password = p_password
+		and (login = p_name or email = p_name);
 	return query
 		select
 			*
@@ -61,8 +61,8 @@ begin
 				role_code
 			from auth_sys.user
 			where
-				login = p_login
-				and password = p_password
+				password = p_password
+				and (login = p_name or email = p_name)
 			union all
 				select
 					0::int8 as id,

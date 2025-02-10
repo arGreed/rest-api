@@ -1,24 +1,43 @@
 package main
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 /*
 ? Хранилище данных, полученных из базы при успешной авторизации пользователя.
 */
 type User struct {
-	Id        uint      `json:"" gorm:"id"`
-	Login     string    `json:"login" gorm:"login"`
-	Email     string    `json:"email" gorm:"email"`
-	Password  string    `json:"-" gorm:"password"`
-	CreatedAt time.Time `json:"created_at" gorm:"created_at"`
-	UpdatedAt time.Time `json:"last_login" gorm:"last_login"`
+	Id        uint      `json:"" gorm:"column:id"`
+	Login     string    `json:"login" gorm:"column:login"`
+	Email     string    `json:"email" gorm:"column:email"`
+	Password  string    `json:"-" gorm:"column:password"`
+	CreatedAt time.Time `json:"created_at" gorm:"column:created_at"`
+	UpdatedAt time.Time `json:"last_login" gorm:"column:last_login"`
+}
+
+func (user User) isValid() bool {
+	return !(len(user.Login) < 5 || !strings.Contains(user.Email, "@") || len(user.Password) < 5)
 }
 
 /*
 ? Структура данных, получаемая от пользователя.
 */
 type UserInput struct {
-	Login    string `json:"login" gorm:"login"`
-	Email    string `json:"email" gorm:"email"`
-	Password string `json:"password" gorm:"password"`
+	Login    string `json:"login" gorm:"column:login"`
+	Email    string `json:"email" gorm:"column:email"`
+	Password string `json:"password" gorm:"column:password"`
+}
+
+func (inp UserInput) isValid() bool {
+	return !(len(inp.Login) < 5 || len(inp.Password) < 5 || len(inp.Email) < 5 || !strings.Contains(inp.Email, "@"))
+}
+
+type validator interface {
+	isValid() bool
+}
+
+func validate(v validator) bool {
+	return v.isValid()
 }
