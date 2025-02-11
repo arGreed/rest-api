@@ -3,11 +3,16 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
+
+var jwtSecret = []byte("wroenhrpiowe4nf089w4gnervub398r32h0gie rnbio3hj923")
 
 var (
 	userTab string = "auth_sys.user"
@@ -87,6 +92,72 @@ func register(db *gorm.DB) func(c *gin.Context) {
 
 func login(db *gorm.DB) func(c *gin.Context) {
 	return func(c *gin.Context) {
+		var input UserInput
+		var userId, userRole uint
+		err := c.ShouldBindJSON(&input)
+		if err != nil || !validate(input) {
+			log.Println("Получен некорректный json-файл")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Передан некорректный json файл"})
+			return
+		}
+		var login, password string
+		if len(input.Email) == 0 {
+			login = input.Login
+		} else {
+			login = input.Email
+		}
+		password, err = hashPassword(input.Password)
+		if err != nil {
+			log.Println("Ошибка хеширования пароля")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка хеширования пароля"})
+			return
+		}
+		row := db.Raw(`SELECT auth_sys.login_attempt(?, ?) as (id int8, role_code int4)`, login, password).Row()
+		err = row.Scan(&userId, &userRole)
+		if err != nil && err != gorm.ErrRecordNotFound {
+			log.Println("Ошибка работы с бд")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка работы с бд"})
+			return
+		}
+		if userId == 0 {
+			log.Println("Пользователь не найден")
+			c.JSON(http.StatusNotFound, gin.H{"result": "Не найден"})
+			return
+		}
+		tokenString := generateToken(userId, userRole)
 
+		c.JSON(http.StatusOK, gin.H{"token": tokenString})
+	}
+}
+
+func generateToken(userId, role uint) string {
+	claims := jwt.MapClaims{}
+	claims["authorized"] = true
+	claims["userId"] = userId
+	claims["userRole"] = role
+	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		log.Println("Ошибка генерации токена")
+		return ""
+	}
+
+	return tokenString
+}
+
+func authJWT(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Требуется авторизация"})
+		c.Abort()
+		return
+	}
+	tokenString := strings.Split(authHeader, " ")[1]
+	if tokenString == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Недействительный токен"})
+		c.Abort()
+		return
 	}
 }
