@@ -32,7 +32,7 @@ func main() {
 	//? Регистрация пользователя;
 	router.POST(registerRoute, register(db))
 	//? Логин в систему
-	router.POST(loginRoute, login(db))
+	router.GET(loginRoute, login(db))
 
 	router.Run(":8081")
 }

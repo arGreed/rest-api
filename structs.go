@@ -31,7 +31,8 @@ type UserInput struct {
 }
 
 func (inp UserInput) isValid() bool {
-	return !(len(inp.Login) < 5 || len(inp.Password) < 5 || len(inp.Email) < 5 || !strings.Contains(inp.Email, "@"))
+	//return (len(inp.Password) < 5 || (len(inp.Login) < 5 && len(inp.Email) < 5) || (!strings.Contains(inp.Email, "@") && len(inp.Email) > 5))
+	return true
 }
 
 type validator interface {

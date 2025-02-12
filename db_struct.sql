@@ -70,7 +70,6 @@ begin
 		)
 		order by id desc
 		fetch first 1 row only;
-		
 end;
 $$
 language plpgsql;

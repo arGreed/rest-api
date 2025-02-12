@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -68,7 +70,7 @@ func register(db *gorm.DB) func(c *gin.Context) {
 			return
 		}
 
-		hash, err := hashPassword(input.Password)
+		//hash, err := hashPassword(input.Password)
 
 		if err != nil {
 			log.Println("Ошибка хеширования пароля")
@@ -78,7 +80,7 @@ func register(db *gorm.DB) func(c *gin.Context) {
 		newUser := User{
 			Login:    input.Login,
 			Email:    input.Email,
-			Password: hash,
+			Password: input.Password,
 		}
 		result = db.Table(userTab).Create(&newUser)
 		if result.Error != nil {
@@ -93,39 +95,48 @@ func register(db *gorm.DB) func(c *gin.Context) {
 func login(db *gorm.DB) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var input UserInput
-		var userId, userRole uint
 		err := c.ShouldBindJSON(&input)
 		if err != nil || !validate(input) {
 			log.Println("Получен некорректный json-файл")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Передан некорректный json файл"})
 			return
 		}
-		var login, password string
+
+		// Определяем, что используется: логин или email
+		var login string
 		if len(input.Email) == 0 {
 			login = input.Login
 		} else {
 			login = input.Email
 		}
-		password, err = hashPassword(input.Password)
-		if err != nil {
-			log.Println("Ошибка хеширования пароля")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка хеширования пароля"})
-			return
-		}
-		row := db.Raw(`SELECT auth_sys.login_attempt(?, ?) as (id int8, role_code int4)`, login, password).Row()
-		err = row.Scan(&userId, &userRole)
-		if err != nil && err != gorm.ErrRecordNotFound {
-			log.Println("Ошибка работы с бд")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка работы с бд"})
-			return
-		}
-		if userId == 0 {
-			log.Println("Пользователь не найден")
-			c.JSON(http.StatusNotFound, gin.H{"result": "Не найден"})
-			return
-		}
-		tokenString := generateToken(userId, userRole)
 
+		// Запрос к базе данных для получения хеша пароля и данных пользователя
+		var storedPasswordHash string
+		var userId, userRole uint
+		var role int
+		row := db.Raw(`SELECT password, id, role_code FROM auth_sys.user WHERE login = ? OR email = ?`, login, login).Row()
+		err = row.Scan(&storedPasswordHash, &userId, &role)
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				log.Println("Пользователь не найден")
+				c.JSON(http.StatusNotFound, gin.H{"result": "Не найден"})
+				return
+			}
+			log.Println("Ошибка работы с БД:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка работы с БД"})
+			return
+		}
+
+		// Проверяем соответствие пароля
+		err = bcrypt.CompareHashAndPassword([]byte(storedPasswordHash), []byte(input.Password))
+		if err != nil {
+			log.Println("Неверный пароль")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный пароль"})
+			return
+		}
+
+		// Генерация токена
+		tokenString := generateToken(userId, userRole)
 		c.JSON(http.StatusOK, gin.H{"token": tokenString})
 	}
 }
@@ -160,4 +171,43 @@ func authJWT(c *gin.Context) {
 		c.Abort()
 		return
 	}
+	token, err := jwt.ParseWithClaims(tokenString, &jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("неожиданный метод подписи")
+		}
+		return jwtSecret, nil
+	})
+	if err != nil {
+		log.Println("Ошибка парсинга jwt")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка парсинга jwt"})
+	}
+	if !token.Valid {
+		log.Println("Ошибка проверки токена:", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Недействительный токен"})
+		c.Abort()
+		return
+	}
+	claims, ok := token.Claims.(*jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка обработки токена"})
+		c.Abort()
+		return
+	}
+	userId, err := (*claims)["userId"].(json.Number).Int64()
+	if err != nil || userId == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Недействительный токен"})
+		c.Abort()
+		return
+	}
+	userRole, err := (*claims)["userRole"].(json.Number).Int64()
+	if err != nil || userRole == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Недействительный токен"})
+		c.Abort()
+		return
+	}
+
+	c.Set("userId", uint(userId))
+	c.Set("userRole", uint(userRole))
+
+	c.Next()
 }
