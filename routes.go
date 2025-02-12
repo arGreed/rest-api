@@ -70,7 +70,7 @@ func register(db *gorm.DB) func(c *gin.Context) {
 			return
 		}
 
-		//hash, err := hashPassword(input.Password)
+		hash, err := hashPassword(input.Password)
 
 		if err != nil {
 			log.Println("Ошибка хеширования пароля")
@@ -80,7 +80,7 @@ func register(db *gorm.DB) func(c *gin.Context) {
 		newUser := User{
 			Login:    input.Login,
 			Email:    input.Email,
-			Password: input.Password,
+			Password: hash,
 		}
 		result = db.Table(userTab).Create(&newUser)
 		if result.Error != nil {
